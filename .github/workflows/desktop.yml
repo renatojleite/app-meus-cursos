@@ -1,0 +1,36 @@
+name: Windows (.exe)
+
+on:
+  push:
+    branches: [main]
+    paths: ['desktop/**', '.github/workflows/desktop.yml']
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  exe:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 8.0.x
+
+      - name: Compilar
+        working-directory: desktop
+        run: dotnet publish -c Release -o publish
+
+      - name: Publicar Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: desktop
+          name: Meus Cursos para Windows
+          body: |
+            Executável único para Windows 10/11 (64 bits). Não precisa instalar.
+            Abre a versão web do Meus Cursos numa janela própria; o login fica salvo.
+            O Windows pode avisar "O Windows protegeu o computador": clique em "Mais informações" → "Executar assim mesmo".
+          files: desktop/publish/MeusCursos.exe
+          make_latest: false

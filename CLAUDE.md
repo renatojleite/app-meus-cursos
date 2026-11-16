@@ -65,7 +65,7 @@ npx tsc --noEmit              # typecheck — rodar antes de concluir qualquer t
 npx expo-doctor
 npx expo export --platform web      # build web
 ```
-CI (`.github/workflows`): `android-apk.yml` publica o APK em Releases; `web.yml` publica no GitHub Pages. Ambos a cada push na `main`. Não roda no Expo Go (módulos nativos).
+CI (`.github/workflows`): `android-apk.yml` publica o APK em Releases; `web.yml` publica no GitHub Pages; `desktop.yml` compila `desktop/` (C# WinForms + WebView2 que abre a versão web) e publica `MeusCursos.exe` na release `desktop` (só quando `desktop/**` muda). Não roda no Expo Go (módulos nativos).
 
 ## Convenções
 - Textos de UI em português (pt-BR). Código e nomes de domínio em português (`evento`, `categoria`), utilitários em inglês ok.
