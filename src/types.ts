@@ -91,6 +91,7 @@ export interface Filtros {
   tags: number[];
   preco: 'todos' | 'gratuito' | 'pago';
   busca: string;
+  instagram: string | null; // cursos do mesmo perfil
 }
 
 export const filtrosPadrao: Filtros = {
@@ -100,4 +101,5 @@ export const filtrosPadrao: Filtros = {
   tags: [],
   preco: 'todos',
   busca: '',
+  instagram: null,
 };

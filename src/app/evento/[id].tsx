@@ -3,6 +3,7 @@ import * as ImagePicker from 'expo-image-picker';
 import React, { useCallback, useEffect, useState } from 'react';
 import { ActivityIndicator, Linking, Pressable, ScrollView, Text, View } from 'react-native';
 import EventoForm from '../../components/EventoForm';
+import MesmoPerfil from '../../components/MesmoPerfil';
 import { Botao, Card, Chip, Rotulo } from '../../components/ui';
 import {
   atualizarStatus,
@@ -261,6 +262,7 @@ export default function Detalhe() {
               {evento.analise_perfil ? (
                 <Text style={{ color: cores.texto, lineHeight: 21 }}>{evento.analise_perfil}</Text>
               ) : null}
+
               {evento.instagram ? (
                 <Botao
                   titulo="Abrir no Instagram"
@@ -271,6 +273,8 @@ export default function Detalhe() {
               ) : null}
             </Card>
           ) : null}
+
+          <MesmoPerfil instagram={evento.instagram} excetoId={evento.id} />
 
           <Botao titulo="Abrir link" style={{ marginTop: espaco.lg }} onPress={() => Linking.openURL(evento.link)} />
           <Botao

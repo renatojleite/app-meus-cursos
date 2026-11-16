@@ -1,4 +1,4 @@
-import { router, useFocusEffect } from 'expo-router';
+import { router, useFocusEffect, useLocalSearchParams } from 'expo-router';
 import React, { useCallback, useEffect, useState } from 'react';
 import { FlatList, Modal, Pressable, ScrollView, Text, TextInput, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -33,6 +33,17 @@ function toggle<T>(arr: T[], v: T): T[] {
 export default function Lista() {
   const insets = useSafeAreaInsets();
   const [filtros, setFiltros] = useState<Filtros>(filtrosPadrao);
+  const { perfil } = useLocalSearchParams<{ perfil?: string }>();
+
+  // Vindo de "Ver todos os cursos de @perfil"
+  useEffect(() => {
+    if (perfil) setFiltros((f) => ({ ...f, instagram: perfil, periodo: 'todos' }));
+  }, [perfil]);
+
+  const limparPerfil = () => {
+    setFiltros((f) => ({ ...f, instagram: null }));
+    router.setParams({ perfil: undefined });
+  };
   const [eventos, setEventos] = useState<Evento[]>([]);
   const [categorias, setCategorias] = useState<Categoria[]>([]);
   const [tags, setTags] = useState<Tag[]>([]);
@@ -66,6 +77,7 @@ export default function Lista() {
   );
 
   const qtdFiltros =
+    (filtros.instagram ? 1 : 0) +
     filtros.status.length + filtros.categorias.length + filtros.tags.length + (filtros.preco !== 'todos' ? 1 : 0);
 
   const mudarStatus = (e: Evento) => {
@@ -117,6 +129,11 @@ export default function Lista() {
             />
           ))}
         </ScrollView>
+        {filtros.instagram ? (
+          <View style={{ flexDirection: 'row', marginTop: espaco.xs }}>
+            <Chip label={`🔗 @${filtros.instagram}  ✕`} ativo onPress={limparPerfil} />
+          </View>
+        ) : null}
       </View>
 
       <FlatList
@@ -235,7 +252,7 @@ export default function Lista() {
                 titulo="Limpar"
                 variante="secundario"
                 style={{ flex: 1 }}
-                onPress={() => setFiltros({ ...filtrosPadrao, busca: filtros.busca, periodo: filtros.periodo })}
+                onPress={() => setFiltros({ ...filtrosPadrao, busca: filtros.busca, periodo: filtros.periodo, instagram: filtros.instagram })}
               />
               <Botao titulo="Aplicar" style={{ flex: 1 }} onPress={() => setModal(false)} />
             </View>

@@ -49,6 +49,7 @@ export async function listarEventos(f: Filtros): Promise<Evento[]> {
   if (f.status.length) q = q.in('status', f.status);
   if (f.categorias.length) q = q.in('categoria_id', f.categorias);
   if (f.tags.length) q = q.overlaps('tag_ids', f.tags);
+  if (f.instagram) q = q.eq('instagram', f.instagram);
   if (f.preco === 'gratuito') q = q.eq('gratuito', true);
   if (f.preco === 'pago') q = q.eq('gratuito', false);
 
@@ -83,6 +84,17 @@ export async function obterEvento(id: number): Promise<Evento | null> {
   const { data, error } = await supabase.from('eventos_v').select('*').eq('id', id).maybeSingle();
   falha(error);
   return data ? mapEvento(data) : null;
+}
+
+/** Outros cursos do mesmo perfil do Instagram (vínculo automático). */
+export async function eventosDoPerfil(instagram: string | null | undefined, excetoId?: number): Promise<Evento[]> {
+  const handle = normalizarInstagram(instagram);
+  if (!handle) return [];
+  let q = supabase.from('eventos_v').select('*').eq('instagram', handle);
+  if (excetoId) q = q.neq('id', excetoId);
+  const { data, error } = await q.order('data_inicio', { ascending: false, nullsFirst: false });
+  falha(error);
+  return (data ?? []).map(mapEvento);
 }
 
 export async function todosEventos(): Promise<Evento[]> {
@@ -137,7 +149,7 @@ export function normalizarInstagram(v: string | null | undefined): string | null
   let s = v.trim();
   const m = s.match(/instagram\.com\/([A-Za-z0-9._]+)/i);
   if (m) s = m[1];
-  s = s.replace(/^@/, '').replace(/\/$/, '');
+  s = s.replace(/^@/, '').replace(/\/$/, '').toLowerCase();
   return s || null;
 }
 

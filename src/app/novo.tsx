@@ -3,6 +3,7 @@ import { router, useLocalSearchParams } from 'expo-router';
 import React, { useEffect, useState } from 'react';
 import { ActivityIndicator, Image, KeyboardAvoidingView, Pressable, ScrollView, Text, View } from 'react-native';
 import EventoForm from '../components/EventoForm';
+import MesmoPerfil from '../components/MesmoPerfil';
 import { Botao, Campo, Card, Rotulo } from '../components/ui';
 import { criarCategoria, listarCategorias, listarTags, salvarEvento } from '../db/repo';
 import { syncEvento } from '../services/calendar';
@@ -170,6 +171,16 @@ export default function Novo() {
                 <Text style={{ color: cores.primaria, marginTop: 4, fontWeight: '600' }}>← Voltar e refazer</Text>
               </Pressable>
             </Card>
+            <MesmoPerfil
+              instagram={draft.instagram}
+              aviso="Este perfil já está nos seus cursos. Ao salvar, este curso fica vinculado a eles."
+              onCarregar={(rel) => {
+                // Reaproveita a análise do perfil já salva se a IA não trouxe uma
+                const anterior = rel.find((e) => e.analise_perfil)?.analise_perfil;
+                if (anterior) setDraft((d) => (d.analise_perfil.trim() ? d : { ...d, analise_perfil: anterior }));
+              }}
+            />
+            <View style={{ height: espaco.md }} />
             <EventoForm
               draft={draft}
               onChange={setDraft}
