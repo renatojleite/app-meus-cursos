@@ -1,7 +1,8 @@
 import { Stack, router, useLocalSearchParams } from 'expo-router';
 import { useSQLiteContext } from 'expo-sqlite';
+import * as ImagePicker from 'expo-image-picker';
 import React, { useCallback, useEffect, useState } from 'react';
-import { Alert, Linking, Pressable, ScrollView, Text, View } from 'react-native';
+import { ActivityIndicator, Alert, Linking, Pressable, ScrollView, Text, View } from 'react-native';
 import EventoForm from '../../components/EventoForm';
 import { Botao, Card, Chip, Rotulo } from '../../components/ui';
 import {
@@ -14,6 +15,12 @@ import {
   salvarEvento,
 } from '../../db/repo';
 import { removerDaAgenda, syncEvento } from '../../services/calendar';
+import {
+  aplicarResultado,
+  rodarEnriquecimento,
+  SemChaveError,
+  type ImagemEntrada,
+} from '../../services/enriquecimento';
 import { formatarData, formatarValor } from '../../format';
 import { cores, espaco } from '../../theme';
 import { STATUS_INFO, STATUS_LIST, type Categoria, type Evento, type EventoDraft, type Status } from '../../types';
@@ -50,6 +57,9 @@ export default function Detalhe() {
   const [categorias, setCategorias] = useState<Categoria[]>([]);
   const [tags, setTags] = useState<string[]>([]);
   const [salvando, setSalvando] = useState(false);
+  const [carregandoIA, setCarregandoIA] = useState<string | null>(null);
+  const [viaIA, setViaIA] = useState(false);
+  const [horaIncerta, setHoraIncerta] = useState(false);
 
   const carregar = useCallback(async () => {
     const e = await obterEvento(db, eventoId);
@@ -67,6 +77,70 @@ export default function Detalhe() {
     return <View style={{ flex: 1 }} />;
   }
 
+  if (carregandoIA) {
+    return (
+      <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center', padding: espaco.xl }}>
+        <Stack.Screen options={{ title: 'Enriquecendo…', headerRight: () => null }} />
+        <ActivityIndicator size="large" color={cores.primaria} />
+        <Text style={{ marginTop: espaco.lg, color: cores.texto, fontSize: 16, textAlign: 'center' }}>{carregandoIA}</Text>
+        <Text style={{ marginTop: 6, color: cores.textoSuave, textAlign: 'center' }}>Pode levar até um minuto.</Text>
+      </View>
+    );
+  }
+
+  const reenriquecer = async (imagem: ImagemEntrada | null) => {
+    try {
+      const { resultado, plataforma } = await rodarEnriquecimento(db, {
+        link: evento.link,
+        imagem,
+        categorias,
+        onEtapa: setCarregandoIA,
+      });
+      setDraft(aplicarResultado(paraDraft(evento), resultado, categorias, plataforma, 'mesclar'));
+      setHoraIncerta(resultado.hora_incerta);
+      setViaIA(true);
+      setEditando(true);
+    } catch (e) {
+      if (e instanceof SemChaveError) {
+        Alert.alert('Chave da API', e.message, [
+          { text: 'Cancelar', style: 'cancel' },
+          { text: 'Ir para Config', onPress: () => router.push('/config') },
+        ]);
+      } else {
+        Alert.alert('Não deu para enriquecer', e instanceof Error ? e.message : String(e));
+      }
+    } finally {
+      setCarregandoIA(null);
+    }
+  };
+
+  const perguntarReenriquecer = () => {
+    Alert.alert(
+      'Enriquecer novamente',
+      'A IA busca os dados de novo pelo link. Você revisa antes de salvar; status e tags atuais são mantidos.',
+      [
+        { text: 'Cancelar', style: 'cancel' },
+        {
+          text: 'Com print',
+          onPress: async () => {
+            const r = await ImagePicker.launchImageLibraryAsync({ mediaTypes: ['images'], base64: true, quality: 0.6 });
+            if (r.canceled || !r.assets[0]) return;
+            const a = r.assets[0];
+            reenriquecer({ base64: a.base64 ?? null, mime: a.mimeType || 'image/jpeg' });
+          },
+        },
+        { text: 'Só o link', onPress: () => reenriquecer(null) },
+      ],
+    );
+  };
+
+  const cancelarEdicao = () => {
+    setDraft(paraDraft(evento));
+    setEditando(false);
+    setViaIA(false);
+    setHoraIncerta(false);
+  };
+
   const mudarStatus = async (st: Status) => {
     await atualizarStatus(db, evento.id, st);
     const r = await syncEvento(db, evento.id);
@@ -81,6 +155,8 @@ export default function Detalhe() {
       const r = await syncEvento(db, evento.id);
       if (!r.ok) Alert.alert('Salvo, mas a agenda não atualizou', r.motivo);
       setEditando(false);
+      setViaIA(false);
+      setHoraIncerta(false);
       carregar();
     } finally {
       setSalvando(false);
@@ -103,7 +179,7 @@ export default function Detalhe() {
   };
 
   const headerRight = () => (
-    <Pressable onPress={() => (editando ? (setDraft(paraDraft(evento)), setEditando(false)) : setEditando(true))}>
+    <Pressable onPress={() => (editando ? cancelarEdicao() : setEditando(true))}>
       <Text style={{ color: cores.primaria, fontWeight: '600', fontSize: 16 }}>{editando ? 'Cancelar' : 'Editar'}</Text>
     </Pressable>
   );
@@ -114,8 +190,16 @@ export default function Detalhe() {
 
       {editando ? (
         <>
+          {viaIA ? (
+            <Card style={{ marginBottom: espaco.lg, padding: espaco.md, backgroundColor: cores.primariaSuave }}>
+              <Text style={{ color: cores.texto }}>
+                ✨ Dados atualizados pela IA. Revise e toque em Salvar, ou em Cancelar para descartar.
+              </Text>
+            </Card>
+          ) : null}
           <EventoForm
             draft={draft}
+            horaIncerta={horaIncerta}
             onChange={setDraft}
             categorias={categorias}
             tagsExistentes={tags}
@@ -187,6 +271,12 @@ export default function Detalhe() {
           ) : null}
 
           <Botao titulo="Abrir link" style={{ marginTop: espaco.lg }} onPress={() => Linking.openURL(evento.link)} />
+          <Botao
+            titulo="✨ Enriquecer novamente com IA"
+            variante="secundario"
+            style={{ marginTop: espaco.sm }}
+            onPress={perguntarReenriquecer}
+          />
           {evento.data_inicio && !evento.calendar_event_id ? (
             <Botao
               titulo="Adicionar à agenda"

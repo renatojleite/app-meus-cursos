@@ -31,6 +31,7 @@ Colar (ou compartilhar) um link e, em segundos, ter um registro completo — org
    - fazer uma **análise breve do perfil** (quem é, nicho, autoridade/porte aproximado, sinais de credibilidade) com base no que a busca encontrar;
    - preencher título, descrição breve, categoria, tags, gratuito/pago, valor, data/hora início e fim, plataforma, formato (online/presencial) e local.
 3. **Revisão:** formulário pré-preenchido; o usuário ajusta e salva.
+4. **Enriquecer novamente:** no detalhe de um evento salvo, botão "✨ Enriquecer novamente com IA" (só o link ou com print). Abre a edição com os dados mesclados — a IA atualiza o que encontrar, mantém o que não encontrar, preserva o status e soma tags novas às existentes. Nada é gravado até o usuário tocar em Salvar.
 
 > Limitação conhecida: o Instagram não permite leitura direta de perfis/posts sem login. A análise vem de buscas na web (bio indexada, site, menções). Um print do perfil melhora a precisão.
 

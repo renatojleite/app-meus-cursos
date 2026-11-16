@@ -25,6 +25,7 @@ src/
   services/
     extract.ts         # baixa página e extrai metadados
     claude.ts          # chamada à Messages API com web_search
+    enriquecimento.ts  # orquestra extração + Claude; aplicarResultado (modo novo/mesclar)
     calendar.ts        # sincronização com agenda nativa
     settings.ts        # SecureStore + tabela config
   components/          # UI reutilizável (EventoForm, Chip, filtros...)

@@ -8,9 +8,8 @@ import EventoForm from '../components/EventoForm';
 import { Botao, Campo, Card, Rotulo } from '../components/ui';
 import { criarCategoria, listarCategorias, listarTags, salvarEvento } from '../db/repo';
 import { syncEvento } from '../services/calendar';
-import { enriquecer, type ResultadoIA } from '../services/claude';
-import { detectarPlataforma, extrairPagina, extrairUrl } from '../services/extract';
-import { getApiKey, getModelo } from '../services/settings';
+import { aplicarResultado, rodarEnriquecimento, SemChaveError } from '../services/enriquecimento';
+import { detectarPlataforma, extrairUrl } from '../services/extract';
 import { cores, espaco, raio } from '../theme';
 import { draftVazio, type Categoria, type EventoDraft } from '../types';
 
@@ -72,67 +71,35 @@ export default function Novo() {
     setEtapa('revisao');
   };
 
-  const aplicarIA = (r: ResultadoIA, l: string, plataforma: string) => {
-    const cat = r.categoria
-      ? categorias.find((c) => c.nome.toLowerCase() === r.categoria!.toLowerCase())
-      : undefined;
-    setDraft({
-      ...draftVazio(l),
-      titulo: r.titulo ?? '',
-      descricao: r.descricao ?? '',
-      organizador: r.organizador ?? '',
-      instagram: r.instagram ?? '',
-      analise_perfil: r.analise_perfil ?? '',
-      plataforma: r.plataforma ?? plataforma,
-      formato: r.formato,
-      local: r.local ?? '',
-      categoria_id: cat?.id ?? null,
-      categoria_sugerida: !cat && r.categoria ? r.categoria : null,
-      gratuito: r.gratuito ?? (r.valor == null),
-      valor: r.valor,
-      data_inicio: r.data_inicio,
-      data_fim: r.data_fim,
-      tags: r.tags,
-    });
-    setHoraIncerta(r.hora_incerta);
-    setEtapa('revisao');
-  };
-
   const enriquecerIA = async () => {
     const l = linkLimpo();
     if (!l && !legenda.trim() && !imagem) {
       Alert.alert('Falta conteúdo', 'Cole um link, uma legenda ou anexe um print.');
       return;
     }
-    const apiKey = await getApiKey();
-    if (!apiKey) {
-      Alert.alert('Chave da API', 'Cadastre sua chave do Claude em Configurações.', [
-        { text: 'Preencher manualmente', onPress: preencherManual },
-        { text: 'Ir para Config', onPress: () => router.replace('/config') },
-      ]);
-      return;
-    }
     try {
-      setCarregando('Lendo a página…');
-      const extracao = l ? await extrairPagina(l) : null;
-      setCarregando('Buscando organizador e perfil no Instagram…');
-      const r = await enriquecer({
-        apiKey,
-        modelo: await getModelo(db),
+      const { resultado, link: lk, plataforma } = await rodarEnriquecimento(db, {
         link: l,
-        extracao,
         legenda,
-        imagemBase64: imagem?.base64 ?? null,
-        imagemMime: imagem?.mime,
-        categorias: categorias.map((c) => c.nome),
-        tagsExistentes,
+        imagem,
+        categorias,
+        onEtapa: setCarregando,
       });
-      aplicarIA(r, l, extracao?.plataforma ?? '');
+      setDraft(aplicarResultado(draftVazio(lk), resultado, categorias, plataforma, 'novo'));
+      setHoraIncerta(resultado.hora_incerta);
+      setEtapa('revisao');
     } catch (e) {
-      Alert.alert('Não deu para enriquecer', e instanceof Error ? e.message : String(e), [
-        { text: 'Tentar de novo', style: 'cancel' },
-        { text: 'Preencher manualmente', onPress: preencherManual },
-      ]);
+      if (e instanceof SemChaveError) {
+        Alert.alert('Chave da API', e.message, [
+          { text: 'Preencher manualmente', onPress: preencherManual },
+          { text: 'Ir para Config', onPress: () => router.replace('/config') },
+        ]);
+      } else {
+        Alert.alert('Não deu para enriquecer', e instanceof Error ? e.message : String(e), [
+          { text: 'Tentar de novo', style: 'cancel' },
+          { text: 'Preencher manualmente', onPress: preencherManual },
+        ]);
+      }
     } finally {
       setCarregando(null);
     }
