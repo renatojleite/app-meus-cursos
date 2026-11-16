@@ -1,8 +1,7 @@
 import { Stack, router, useLocalSearchParams } from 'expo-router';
-import { useSQLiteContext } from 'expo-sqlite';
 import * as ImagePicker from 'expo-image-picker';
 import React, { useCallback, useEffect, useState } from 'react';
-import { ActivityIndicator, Alert, Linking, Pressable, ScrollView, Text, View } from 'react-native';
+import { ActivityIndicator, Linking, Pressable, ScrollView, Text, View } from 'react-native';
 import EventoForm from '../../components/EventoForm';
 import { Botao, Card, Chip, Rotulo } from '../../components/ui';
 import {
@@ -14,15 +13,16 @@ import {
   obterEvento,
   salvarEvento,
 } from '../../db/repo';
-import { removerDaAgenda, syncEvento } from '../../services/calendar';
+import { limparBase64 } from '../../lib/arquivo';
+import { avisar, escolher } from '../../lib/dialogo';
+import { AGENDA_DISPONIVEL, estaNaAgenda, removerDaAgenda, syncEvento } from '../../services/calendar';
 import {
   aplicarResultado,
   rodarEnriquecimento,
-  SemChaveError,
   type ImagemEntrada,
 } from '../../services/enriquecimento';
 import { formatarData, formatarValor } from '../../format';
-import { cores, espaco } from '../../theme';
+import { cores, espaco, larguraMax } from '../../theme';
 import { STATUS_INFO, STATUS_LIST, type Categoria, type Evento, type EventoDraft, type Status } from '../../types';
 
 function paraDraft(e: Evento): EventoDraft {
@@ -48,7 +48,6 @@ function paraDraft(e: Evento): EventoDraft {
 }
 
 export default function Detalhe() {
-  const db = useSQLiteContext();
   const { id } = useLocalSearchParams<{ id: string }>();
   const eventoId = Number(id);
   const [evento, setEvento] = useState<Evento | null>(null);
@@ -61,13 +60,20 @@ export default function Detalhe() {
   const [viaIA, setViaIA] = useState(false);
   const [horaIncerta, setHoraIncerta] = useState(false);
 
+  const [naAgenda, setNaAgenda] = useState(false);
+
   const carregar = useCallback(async () => {
-    const e = await obterEvento(db, eventoId);
-    setEvento(e);
-    if (e) setDraft(paraDraft(e));
-    setCategorias(await listarCategorias(db));
-    setTags((await listarTags(db)).map((t) => t.nome));
-  }, [db, eventoId]);
+    try {
+      const e = await obterEvento(eventoId);
+      setEvento(e);
+      if (e) setDraft(paraDraft(e));
+      setNaAgenda(await estaNaAgenda(eventoId));
+      setCategorias(await listarCategorias());
+      setTags((await listarTags()).map((t) => t.nome));
+    } catch (err) {
+      avisar('Erro', err instanceof Error ? err.message : String(err));
+    }
+  }, [eventoId]);
 
   useEffect(() => {
     carregar();
@@ -90,7 +96,7 @@ export default function Detalhe() {
 
   const reenriquecer = async (imagem: ImagemEntrada | null) => {
     try {
-      const { resultado, plataforma } = await rodarEnriquecimento(db, {
+      const { resultado, plataforma } = await rodarEnriquecimento({
         link: evento.link,
         imagem,
         categorias,
@@ -101,21 +107,14 @@ export default function Detalhe() {
       setViaIA(true);
       setEditando(true);
     } catch (e) {
-      if (e instanceof SemChaveError) {
-        Alert.alert('Chave da API', e.message, [
-          { text: 'Cancelar', style: 'cancel' },
-          { text: 'Ir para Config', onPress: () => router.push('/config') },
-        ]);
-      } else {
-        Alert.alert('Não deu para enriquecer', e instanceof Error ? e.message : String(e));
-      }
+      avisar('Não deu para enriquecer', e instanceof Error ? e.message : String(e));
     } finally {
       setCarregandoIA(null);
     }
   };
 
   const perguntarReenriquecer = () => {
-    Alert.alert(
+    escolher(
       'Enriquecer novamente',
       'A IA busca os dados de novo pelo link. Você revisa antes de salvar; status e tags atuais são mantidos.',
       [
@@ -126,7 +125,7 @@ export default function Detalhe() {
             const r = await ImagePicker.launchImageLibraryAsync({ mediaTypes: ['images'], base64: true, quality: 0.6 });
             if (r.canceled || !r.assets[0]) return;
             const a = r.assets[0];
-            reenriquecer({ base64: a.base64 ?? null, mime: a.mimeType || 'image/jpeg' });
+            reenriquecer({ base64: limparBase64(a.base64), mime: a.mimeType || 'image/jpeg' });
           },
         },
         { text: 'Só o link', onPress: () => reenriquecer(null) },
@@ -142,37 +141,40 @@ export default function Detalhe() {
   };
 
   const mudarStatus = async (st: Status) => {
-    await atualizarStatus(db, evento.id, st);
-    const r = await syncEvento(db, evento.id);
-    if (!r.ok) Alert.alert('Agenda', r.motivo);
+    await atualizarStatus(evento.id, st);
+    const r = await syncEvento(evento.id);
+    if (!r.ok) avisar('Agenda', r.motivo);
     carregar();
   };
 
   const salvar = async () => {
     setSalvando(true);
     try {
-      await salvarEvento(db, draft, evento.id);
-      const r = await syncEvento(db, evento.id);
-      if (!r.ok) Alert.alert('Salvo, mas a agenda não atualizou', r.motivo);
+      await salvarEvento(draft, evento.id);
+      const r = await syncEvento(evento.id);
+      if (!r.ok) avisar('Salvo, mas a agenda não atualizou', r.motivo);
       setEditando(false);
       setViaIA(false);
       setHoraIncerta(false);
       carregar();
+    } catch (e) {
+      avisar('Erro ao salvar', e instanceof Error ? e.message : String(e));
     } finally {
       setSalvando(false);
     }
   };
 
   const excluir = () => {
-    Alert.alert('Excluir', 'Excluir este evento? Ele também sai da agenda do celular.', [
+    escolher('Excluir', 'Excluir este curso? Ele também sai da agenda do celular.', [
       { text: 'Cancelar', style: 'cancel' },
       {
         text: 'Excluir',
         style: 'destructive',
         onPress: async () => {
-          await removerDaAgenda(evento.calendar_event_id);
-          await excluirEvento(db, evento.id);
-          router.back();
+          await excluirEvento(evento.id);
+          await removerDaAgenda(evento.id);
+          if (router.canGoBack()) router.back();
+          else router.replace('/');
         },
       },
     ]);
@@ -185,7 +187,7 @@ export default function Detalhe() {
   );
 
   return (
-    <ScrollView contentContainerStyle={{ padding: espaco.lg, paddingBottom: 60 }} keyboardShouldPersistTaps="handled">
+    <ScrollView contentContainerStyle={[{ padding: espaco.lg, paddingBottom: 60 }, larguraMax]} keyboardShouldPersistTaps="handled">
       <Stack.Screen options={{ title: editando ? 'Editar' : 'Detalhe', headerRight }} />
 
       {editando ? (
@@ -204,8 +206,8 @@ export default function Detalhe() {
             categorias={categorias}
             tagsExistentes={tags}
             onCriarCategoria={async (nome) => {
-              const cid = await criarCategoria(db, nome);
-              setCategorias(await listarCategorias(db));
+              const cid = await criarCategoria(nome);
+              setCategorias(await listarCategorias());
               return cid;
             }}
           />
@@ -218,7 +220,7 @@ export default function Detalhe() {
             {formatarData(evento.data_inicio)}
             {evento.data_fim ? ` → ${formatarData(evento.data_fim)}` : ''}
           </Text>
-          {evento.calendar_event_id ? (
+          {naAgenda ? (
             <Text style={{ color: cores.sucesso, fontSize: 12, marginTop: 4 }}>📅 Na agenda · lembrete 1h antes</Text>
           ) : null}
 
@@ -277,14 +279,14 @@ export default function Detalhe() {
             style={{ marginTop: espaco.sm }}
             onPress={perguntarReenriquecer}
           />
-          {evento.data_inicio && !evento.calendar_event_id ? (
+          {AGENDA_DISPONIVEL && evento.data_inicio && !naAgenda ? (
             <Botao
               titulo="Adicionar à agenda"
               variante="secundario"
               style={{ marginTop: espaco.sm }}
               onPress={async () => {
-                const r = await syncEvento(db, evento.id);
-                if (!r.ok) Alert.alert('Agenda', r.motivo);
+                const r = await syncEvento(evento.id);
+                if (!r.ok) avisar('Agenda', r.motivo);
                 carregar();
               }}
             />

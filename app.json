@@ -24,7 +24,14 @@
       ]
     },
     "web": {
-      "favicon": "./assets/favicon.png"
+      "favicon": "./assets/favicon.png",
+      "output": "single",
+      "bundler": "metro",
+      "name": "Meus Cursos",
+      "shortName": "Meus Cursos",
+      "lang": "pt-BR",
+      "themeColor": "#4338CA",
+      "backgroundColor": "#F6F5F2"
     },
     "plugins": [
       "expo-router",
@@ -55,7 +62,8 @@
     ],
     "scheme": "meuscursos",
     "experiments": {
-      "typedRoutes": false
+      "typedRoutes": false,
+      "baseUrl": "/app-meus-cursos"
     }
   }
 }

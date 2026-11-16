@@ -1,22 +1,21 @@
-import { File } from 'expo-file-system';
 import * as ImagePicker from 'expo-image-picker';
 import { router, useLocalSearchParams } from 'expo-router';
-import { useSQLiteContext } from 'expo-sqlite';
 import React, { useEffect, useState } from 'react';
-import { ActivityIndicator, Alert, Image, KeyboardAvoidingView, Pressable, ScrollView, Text, View } from 'react-native';
+import { ActivityIndicator, Image, KeyboardAvoidingView, Pressable, ScrollView, Text, View } from 'react-native';
 import EventoForm from '../components/EventoForm';
 import { Botao, Campo, Card, Rotulo } from '../components/ui';
 import { criarCategoria, listarCategorias, listarTags, salvarEvento } from '../db/repo';
 import { syncEvento } from '../services/calendar';
-import { aplicarResultado, rodarEnriquecimento, SemChaveError } from '../services/enriquecimento';
-import { detectarPlataforma, extrairUrl } from '../services/extract';
-import { cores, espaco, raio } from '../theme';
+import { lerBase64, limparBase64 } from '../lib/arquivo';
+import { avisar, escolher } from '../lib/dialogo';
+import { aplicarResultado, rodarEnriquecimento } from '../services/enriquecimento';
+import { detectarPlataforma, extrairUrl } from '../services/link';
+import { cores, espaco, larguraMax, raio } from '../theme';
 import { draftVazio, type Categoria, type EventoDraft } from '../types';
 
 type Imagem = { uri: string; base64: string | null; mime: string };
 
 export default function Novo() {
-  const db = useSQLiteContext();
   const params = useLocalSearchParams<{ link?: string; legenda?: string; imagem?: string; mime?: string; t?: string }>();
 
   const [link, setLink] = useState('');
@@ -31,21 +30,20 @@ export default function Novo() {
   const [salvando, setSalvando] = useState(false);
 
   useEffect(() => {
-    listarCategorias(db).then(setCategorias);
-    listarTags(db).then((t) => setTagsExistentes(t.map((x) => x.nome)));
-  }, [db]);
+    listarCategorias().then(setCategorias).catch(() => {});
+    listarTags()
+      .then((t) => setTagsExistentes(t.map((x) => x.nome)))
+      .catch(() => {});
+  }, []);
 
   // Conteúdo vindo do "Compartilhar"
   useEffect(() => {
     if (params.link) setLink(params.link);
     if (params.legenda) setLegenda(params.legenda);
     if (params.imagem) {
-      try {
-        const f = new File(params.imagem.startsWith('file://') ? params.imagem : `file://${params.imagem}`);
-        f.base64().then((b64) => setImagem({ uri: f.uri, base64: b64, mime: params.mime || 'image/jpeg' }));
-      } catch {
-        // ignora — usuário pode anexar manualmente
-      }
+      lerBase64(params.imagem)
+        .then(({ uri, base64 }) => setImagem({ uri, base64, mime: params.mime || 'image/jpeg' }))
+        .catch(() => {}); // usuário pode anexar manualmente
     }
     setEtapa('captura');
   }, [params.t]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -58,7 +56,7 @@ export default function Novo() {
     });
     if (!r.canceled && r.assets[0]) {
       const a = r.assets[0];
-      setImagem({ uri: a.uri, base64: a.base64 ?? null, mime: a.mimeType || 'image/jpeg' });
+      setImagem({ uri: a.uri, base64: limparBase64(a.base64), mime: a.mimeType || 'image/jpeg' });
     }
   };
 
@@ -74,11 +72,11 @@ export default function Novo() {
   const enriquecerIA = async () => {
     const l = linkLimpo();
     if (!l && !legenda.trim() && !imagem) {
-      Alert.alert('Falta conteúdo', 'Cole um link, uma legenda ou anexe um print.');
+      avisar('Falta conteúdo', 'Cole um link, uma legenda ou anexe um print.');
       return;
     }
     try {
-      const { resultado, link: lk, plataforma } = await rodarEnriquecimento(db, {
+      const { resultado, link: lk, plataforma } = await rodarEnriquecimento({
         link: l,
         legenda,
         imagem,
@@ -89,17 +87,10 @@ export default function Novo() {
       setHoraIncerta(resultado.hora_incerta);
       setEtapa('revisao');
     } catch (e) {
-      if (e instanceof SemChaveError) {
-        Alert.alert('Chave da API', e.message, [
-          { text: 'Preencher manualmente', onPress: preencherManual },
-          { text: 'Ir para Config', onPress: () => router.replace('/config') },
-        ]);
-      } else {
-        Alert.alert('Não deu para enriquecer', e instanceof Error ? e.message : String(e), [
-          { text: 'Tentar de novo', style: 'cancel' },
-          { text: 'Preencher manualmente', onPress: preencherManual },
-        ]);
-      }
+      escolher('Não deu para enriquecer', e instanceof Error ? e.message : String(e), [
+        { text: 'Tentar de novo', style: 'cancel' },
+        { text: 'Preencher manualmente', onPress: preencherManual },
+      ]);
     } finally {
       setCarregando(null);
     }
@@ -107,17 +98,17 @@ export default function Novo() {
 
   const salvar = async () => {
     if (!draft.titulo.trim()) {
-      Alert.alert('Título', 'Dê um título ao evento.');
+      avisar('Título', 'Dê um título ao curso.');
       return;
     }
     setSalvando(true);
     try {
-      const id = await salvarEvento(db, draft);
-      const sync = await syncEvento(db, id);
-      if (!sync.ok) Alert.alert('Salvo, mas não foi para a agenda', sync.motivo);
+      const id = await salvarEvento(draft);
+      const sync = await syncEvento(id);
+      if (!sync.ok) avisar('Salvo, mas não foi para a agenda', sync.motivo);
       router.replace(`/evento/${id}`);
     } catch (e) {
-      Alert.alert('Erro ao salvar', e instanceof Error ? e.message : String(e));
+      avisar('Erro ao salvar', e instanceof Error ? e.message : String(e));
     } finally {
       setSalvando(false);
     }
@@ -137,7 +128,7 @@ export default function Novo() {
 
   return (
     <KeyboardAvoidingView style={{ flex: 1 }} behavior="height">
-      <ScrollView contentContainerStyle={{ padding: espaco.lg, paddingBottom: 60 }} keyboardShouldPersistTaps="handled">
+      <ScrollView contentContainerStyle={[{ padding: espaco.lg, paddingBottom: 60 }, larguraMax]} keyboardShouldPersistTaps="handled">
         {etapa === 'captura' ? (
           <>
             <Campo
@@ -186,8 +177,8 @@ export default function Novo() {
               tagsExistentes={tagsExistentes}
               horaIncerta={horaIncerta}
               onCriarCategoria={async (nome) => {
-                const id = await criarCategoria(db, nome);
-                setCategorias(await listarCategorias(db));
+                const id = await criarCategoria(nome);
+                setCategorias(await listarCategorias());
                 return id;
               }}
             />

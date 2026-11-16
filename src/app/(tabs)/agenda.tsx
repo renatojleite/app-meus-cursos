@@ -1,5 +1,4 @@
 import { router, useFocusEffect } from 'expo-router';
-import { useSQLiteContext } from 'expo-sqlite';
 import React, { useCallback, useMemo, useState } from 'react';
 import { ScrollView, Text, View } from 'react-native';
 import { Calendar, LocaleConfig } from 'react-native-calendars';
@@ -7,7 +6,7 @@ import EventoCard from '../../components/EventoCard';
 import { Vazio } from '../../components/ui';
 import { eventosNoIntervalo } from '../../db/repo';
 import { chaveDia } from '../../format';
-import { cores, espaco, raio } from '../../theme';
+import { cores, espaco, larguraMax, raio } from '../../theme';
 import { STATUS_INFO, type Evento } from '../../types';
 
 LocaleConfig.locales['pt-br'] = {
@@ -20,7 +19,6 @@ LocaleConfig.locales['pt-br'] = {
 LocaleConfig.defaultLocale = 'pt-br';
 
 export default function Agenda() {
-  const db = useSQLiteContext();
   const hoje = chaveDia(new Date());
   const [mes, setMes] = useState(() => {
     const d = new Date();
@@ -33,8 +31,12 @@ export default function Agenda() {
     // mês visível + margem para os dias de meses vizinhos exibidos
     const ini = new Date(mes.ano, mes.mes - 1, 20);
     const fim = new Date(mes.ano, mes.mes + 1, 12);
-    setEventos(await eventosNoIntervalo(db, ini.toISOString(), fim.toISOString()));
-  }, [db, mes]);
+    try {
+      setEventos(await eventosNoIntervalo(ini.toISOString(), fim.toISOString()));
+    } catch {
+      setEventos([]);
+    }
+  }, [mes]);
 
   useFocusEffect(
     useCallback(() => {
@@ -71,7 +73,7 @@ export default function Agenda() {
   });
 
   return (
-    <ScrollView contentContainerStyle={{ padding: espaco.lg, paddingBottom: 40 }}>
+    <ScrollView contentContainerStyle={[{ padding: espaco.lg, paddingBottom: 40 }, larguraMax]}>
       <View style={{ borderRadius: raio.lg, overflow: 'hidden', marginBottom: espaco.lg }}>
         <Calendar
           markingType="multi-dot"

@@ -1,179 +1,135 @@
-import type { SQLiteDatabase } from 'expo-sqlite';
+/** Acesso aos dados no Supabase (RLS garante que cada usuário só vê os próprios). */
+import { supabase } from '../lib/supabase';
 import type { Categoria, Evento, EventoDraft, Filtros, Status, Tag } from '../types';
 
-type EventoRow = Omit<Evento, 'gratuito' | 'tags'> & { gratuito: number; tags_csv: string | null };
+type Linha = Record<string, any>;
 
-const SELECT_EVENTO = `
-  SELECT e.*, c.nome AS categoria_nome,
-    (SELECT group_concat(t.nome, '||') FROM evento_tags et JOIN tags t ON t.id = et.tag_id
-      WHERE et.evento_id = e.id) AS tags_csv
-  FROM eventos e
-  LEFT JOIN categorias c ON c.id = e.categoria_id
-`;
+function falha(error: { message: string } | null) {
+  if (error) throw new Error(error.message);
+}
 
-function mapEvento(r: EventoRow): Evento {
-  const { tags_csv, ...rest } = r;
+function mapEvento(r: Linha): Evento {
   return {
-    ...rest,
+    id: Number(r.id),
+    link: r.link ?? '',
+    titulo: r.titulo,
+    descricao: r.descricao,
+    organizador: r.organizador,
+    instagram: r.instagram,
+    analise_perfil: r.analise_perfil,
+    plataforma: r.plataforma,
+    formato: r.formato,
+    local: r.local,
+    categoria_id: r.categoria_id != null ? Number(r.categoria_id) : null,
+    status: r.status,
     gratuito: !!r.gratuito,
-    tags: tags_csv ? tags_csv.split('||').sort((a, b) => a.localeCompare(b)) : [],
+    valor: r.valor != null ? Number(r.valor) : null,
+    data_inicio: r.data_inicio ? new Date(r.data_inicio).toISOString() : null,
+    data_fim: r.data_fim ? new Date(r.data_fim).toISOString() : null,
+    criado_em: r.criado_em,
+    atualizado_em: r.atualizado_em,
+    categoria_nome: r.categoria_nome ?? null,
+    tags: (r.tags ?? []) as string[],
   };
 }
 
 // ---------- Eventos ----------
 
-export async function listarEventos(db: SQLiteDatabase, f: Filtros): Promise<Evento[]> {
-  const where: string[] = [];
-  const params: (string | number)[] = [];
+export async function listarEventos(f: Filtros): Promise<Evento[]> {
   const agora = new Date().toISOString();
+  let q = supabase.from('eventos_v').select('*');
 
   if (f.periodo === 'proximos') {
-    where.push('e.data_inicio IS NOT NULL AND COALESCE(e.data_fim, e.data_inicio) >= ?');
-    params.push(agora);
+    q = q.not('data_inicio', 'is', null).or(`data_fim.gte.${agora},and(data_fim.is.null,data_inicio.gte.${agora})`);
   } else if (f.periodo === 'passados') {
-    where.push('e.data_inicio IS NOT NULL AND COALESCE(e.data_fim, e.data_inicio) < ?');
-    params.push(agora);
+    q = q.not('data_inicio', 'is', null).or(`data_fim.lt.${agora},and(data_fim.is.null,data_inicio.lt.${agora})`);
   } else if (f.periodo === 'sem_data') {
-    where.push('e.data_inicio IS NULL');
+    q = q.is('data_inicio', null);
   }
+  if (f.status.length) q = q.in('status', f.status);
+  if (f.categorias.length) q = q.in('categoria_id', f.categorias);
+  if (f.tags.length) q = q.overlaps('tag_ids', f.tags);
+  if (f.preco === 'gratuito') q = q.eq('gratuito', true);
+  if (f.preco === 'pago') q = q.eq('gratuito', false);
 
-  if (f.status.length) {
-    where.push(`e.status IN (${f.status.map(() => '?').join(',')})`);
-    params.push(...f.status);
-  }
-  if (f.categorias.length) {
-    where.push(`e.categoria_id IN (${f.categorias.map(() => '?').join(',')})`);
-    params.push(...f.categorias);
-  }
-  if (f.tags.length) {
-    where.push(
-      `EXISTS (SELECT 1 FROM evento_tags et WHERE et.evento_id = e.id AND et.tag_id IN (${f.tags
-        .map(() => '?')
-        .join(',')}))`,
-    );
-    params.push(...f.tags);
-  }
-  if (f.preco === 'gratuito') where.push('e.gratuito = 1');
-  if (f.preco === 'pago') where.push('e.gratuito = 0');
-
-  const busca = f.busca.trim();
+  const busca = f.busca.trim().replace(/[,()*%]/g, ' ').trim();
   if (busca) {
-    where.push(
-      '(e.titulo LIKE ? OR e.organizador LIKE ? OR e.instagram LIKE ? OR e.descricao LIKE ?)',
-    );
-    const like = `%${busca}%`;
-    params.push(like, like, like, like);
+    const like = `*${busca}*`;
+    q = q.or(`titulo.ilike.${like},organizador.ilike.${like},instagram.ilike.${like},descricao.ilike.${like}`);
   }
 
-  const ordem =
+  q =
     f.periodo === 'passados'
-      ? 'e.data_inicio DESC'
-      : '(e.data_inicio IS NULL), e.data_inicio ASC, e.criado_em DESC';
+      ? q.order('data_inicio', { ascending: false })
+      : q.order('data_inicio', { ascending: true, nullsFirst: false }).order('criado_em', { ascending: false });
 
-  const sql = `${SELECT_EVENTO} ${where.length ? 'WHERE ' + where.join(' AND ') : ''} ORDER BY ${ordem}`;
-  const rows = await db.getAllAsync<EventoRow>(sql, params);
-  return rows.map(mapEvento);
+  const { data, error } = await q;
+  falha(error);
+  return (data ?? []).map(mapEvento);
 }
 
-export async function eventosNoIntervalo(
-  db: SQLiteDatabase,
-  inicioIso: string,
-  fimIso: string,
-): Promise<Evento[]> {
-  const rows = await db.getAllAsync<EventoRow>(
-    `${SELECT_EVENTO} WHERE e.data_inicio >= ? AND e.data_inicio < ? ORDER BY e.data_inicio`,
-    [inicioIso, fimIso],
-  );
-  return rows.map(mapEvento);
+export async function eventosNoIntervalo(inicioIso: string, fimIso: string): Promise<Evento[]> {
+  const { data, error } = await supabase
+    .from('eventos_v')
+    .select('*')
+    .gte('data_inicio', inicioIso)
+    .lt('data_inicio', fimIso)
+    .order('data_inicio');
+  falha(error);
+  return (data ?? []).map(mapEvento);
 }
 
-export async function obterEvento(db: SQLiteDatabase, id: number): Promise<Evento | null> {
-  const r = await db.getFirstAsync<EventoRow>(`${SELECT_EVENTO} WHERE e.id = ?`, [id]);
-  return r ? mapEvento(r) : null;
+export async function obterEvento(id: number): Promise<Evento | null> {
+  const { data, error } = await supabase.from('eventos_v').select('*').eq('id', id).maybeSingle();
+  falha(error);
+  return data ? mapEvento(data) : null;
 }
 
-export async function todosEventosComData(db: SQLiteDatabase): Promise<Evento[]> {
-  const rows = await db.getAllAsync<EventoRow>(`${SELECT_EVENTO} WHERE e.data_inicio IS NOT NULL`);
-  return rows.map(mapEvento);
+export async function todosEventos(): Promise<Evento[]> {
+  const { data, error } = await supabase.from('eventos_v').select('*');
+  falha(error);
+  return (data ?? []).map(mapEvento);
 }
 
-/** Cria ou atualiza. Retorna o id. */
-export async function salvarEvento(
-  db: SQLiteDatabase,
-  d: EventoDraft,
-  id?: number,
-): Promise<number> {
-  const agora = new Date().toISOString();
-  const valores = [
-    d.link.trim(),
-    d.titulo.trim() || 'Sem título',
-    d.descricao.trim() || null,
-    d.organizador.trim() || null,
-    normalizarInstagram(d.instagram),
-    d.analise_perfil.trim() || null,
-    d.plataforma.trim() || null,
-    d.formato,
-    d.local.trim() || null,
-    d.categoria_id,
-    d.status,
-    d.gratuito ? 1 : 0,
-    d.gratuito ? null : d.valor,
-    d.data_inicio,
-    d.data_fim,
-  ];
-
-  let eventoId = id;
-  await db.withTransactionAsync(async () => {
-    if (eventoId) {
-      await db.runAsync(
-        `UPDATE eventos SET link=?, titulo=?, descricao=?, organizador=?, instagram=?, analise_perfil=?,
-          plataforma=?, formato=?, local=?, categoria_id=?, status=?, gratuito=?, valor=?, data_inicio=?,
-          data_fim=?, atualizado_em=? WHERE id=?`,
-        [...valores, agora, eventoId],
-      );
-    } else {
-      const res = await db.runAsync(
-        `INSERT INTO eventos (link, titulo, descricao, organizador, instagram, analise_perfil, plataforma,
-          formato, local, categoria_id, status, gratuito, valor, data_inicio, data_fim, criado_em, atualizado_em)
-          VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
-        [...valores, agora, agora],
-      );
-      eventoId = res.lastInsertRowId;
-    }
-    await definirTags(db, eventoId!, d.tags);
+/** Cria ou atualiza (com tags) numa transação. Retorna o id. */
+export async function salvarEvento(d: EventoDraft, id?: number): Promise<number> {
+  const p = {
+    link: d.link.trim(),
+    titulo: d.titulo.trim() || 'Sem título',
+    descricao: d.descricao.trim() || null,
+    organizador: d.organizador.trim() || null,
+    instagram: normalizarInstagram(d.instagram),
+    analise_perfil: d.analise_perfil.trim() || null,
+    plataforma: d.plataforma.trim() || null,
+    formato: d.formato,
+    local: d.local.trim() || null,
+    categoria_id: d.categoria_id,
+    status: d.status,
+    gratuito: d.gratuito,
+    valor: d.gratuito ? null : d.valor,
+    data_inicio: d.data_inicio,
+    data_fim: d.data_fim,
+  };
+  const { data, error } = await supabase.rpc('salvar_evento', {
+    p_id: id ?? null,
+    p,
+    p_tags: d.tags,
   });
-  return eventoId!;
+  falha(error);
+  return Number(data);
 }
 
-async function definirTags(db: SQLiteDatabase, eventoId: number, nomes: string[]) {
-  await db.runAsync('DELETE FROM evento_tags WHERE evento_id = ?', [eventoId]);
-  const unicos = Array.from(new Set(nomes.map((n) => n.trim().toLowerCase()).filter(Boolean)));
-  for (const nome of unicos) {
-    await db.runAsync('INSERT OR IGNORE INTO tags (nome) VALUES (?)', [nome]);
-    const tag = await db.getFirstAsync<{ id: number }>('SELECT id FROM tags WHERE nome = ?', [nome]);
-    if (tag) {
-      await db.runAsync('INSERT OR IGNORE INTO evento_tags (evento_id, tag_id) VALUES (?, ?)', [
-        eventoId,
-        tag.id,
-      ]);
-    }
-  }
+export async function atualizarStatus(id: number, status: Status) {
+  const { error } = await supabase
+    .from('eventos')
+    .update({ status, atualizado_em: new Date().toISOString() })
+    .eq('id', id);
+  falha(error);
 }
 
-export async function atualizarStatus(db: SQLiteDatabase, id: number, status: Status) {
-  await db.runAsync('UPDATE eventos SET status = ?, atualizado_em = ? WHERE id = ?', [
-    status,
-    new Date().toISOString(),
-    id,
-  ]);
-}
-
-export async function definirCalendarId(db: SQLiteDatabase, id: number, calId: string | null) {
-  await db.runAsync('UPDATE eventos SET calendar_event_id = ? WHERE id = ?', [calId, id]);
-}
-
-export async function excluirEvento(db: SQLiteDatabase, id: number) {
-  await db.runAsync('DELETE FROM eventos WHERE id = ?', [id]);
+export async function excluirEvento(id: number) {
+  const { error } = await supabase.from('eventos').delete().eq('id', id);
+  falha(error);
 }
 
 export function normalizarInstagram(v: string | null | undefined): string | null {
@@ -187,58 +143,54 @@ export function normalizarInstagram(v: string | null | undefined): string | null
 
 // ---------- Categorias ----------
 
-export async function listarCategorias(db: SQLiteDatabase): Promise<Categoria[]> {
-  return db.getAllAsync<Categoria>(
-    `SELECT id, nome FROM categorias ORDER BY (nome = 'Outros'), nome COLLATE NOCASE`,
-  );
+export async function garantirCategorias() {
+  const { error } = await supabase.rpc('garantir_categorias');
+  falha(error);
 }
 
-export async function criarCategoria(db: SQLiteDatabase, nome: string): Promise<number> {
+export async function listarCategorias(): Promise<Categoria[]> {
+  const { data, error } = await supabase.from('categorias').select('id, nome');
+  falha(error);
+  return (data ?? [])
+    .map((c) => ({ id: Number(c.id), nome: c.nome as string }))
+    .sort((a, b) => Number(a.nome === 'Outros') - Number(b.nome === 'Outros') || a.nome.localeCompare(b.nome, 'pt-BR'));
+}
+
+export async function criarCategoria(nome: string): Promise<number> {
   const n = nome.trim();
-  await db.runAsync('INSERT OR IGNORE INTO categorias (nome) VALUES (?)', [n]);
-  const r = await db.getFirstAsync<{ id: number }>('SELECT id FROM categorias WHERE nome = ?', [n]);
-  return r!.id;
+  const existente = (await listarCategorias()).find((c) => c.nome.toLowerCase() === n.toLowerCase());
+  if (existente) return existente.id;
+  const { data, error } = await supabase.from('categorias').insert({ nome: n }).select('id').single();
+  falha(error);
+  return Number(data!.id);
 }
 
-export async function renomearCategoria(db: SQLiteDatabase, id: number, nome: string) {
-  await db.runAsync('UPDATE categorias SET nome = ? WHERE id = ?', [nome.trim(), id]);
+export async function renomearCategoria(id: number, nome: string) {
+  const { error } = await supabase.from('categorias').update({ nome: nome.trim() }).eq('id', id);
+  falha(error);
 }
 
-export async function excluirCategoria(db: SQLiteDatabase, id: number) {
-  await db.runAsync('DELETE FROM categorias WHERE id = ?', [id]);
+export async function excluirCategoria(id: number) {
+  const { error } = await supabase.from('categorias').delete().eq('id', id);
+  falha(error);
 }
 
 // ---------- Tags ----------
 
-export async function listarTags(db: SQLiteDatabase): Promise<(Tag & { total: number })[]> {
-  return db.getAllAsync<Tag & { total: number }>(
-    `SELECT t.id, t.nome, COUNT(et.evento_id) AS total FROM tags t
-     LEFT JOIN evento_tags et ON et.tag_id = t.id
-     GROUP BY t.id ORDER BY t.nome COLLATE NOCASE`,
-  );
+export async function listarTags(): Promise<(Tag & { total: number })[]> {
+  const { data, error } = await supabase.from('tags').select('id, nome, evento_tags(count)');
+  falha(error);
+  return (data ?? [])
+    .map((t: Linha) => ({ id: Number(t.id), nome: t.nome as string, total: Number(t.evento_tags?.[0]?.count ?? 0) }))
+    .sort((a, b) => a.nome.localeCompare(b.nome, 'pt-BR'));
 }
 
-export async function renomearTag(db: SQLiteDatabase, id: number, nome: string) {
-  await db.runAsync('UPDATE tags SET nome = ? WHERE id = ?', [nome.trim().toLowerCase(), id]);
+export async function renomearTag(id: number, nome: string) {
+  const { error } = await supabase.from('tags').update({ nome: nome.trim().toLowerCase() }).eq('id', id);
+  falha(error);
 }
 
-export async function excluirTag(db: SQLiteDatabase, id: number) {
-  await db.runAsync('DELETE FROM tags WHERE id = ?', [id]);
-}
-
-// ---------- Config ----------
-
-export async function getConfig(db: SQLiteDatabase, chave: string): Promise<string | null> {
-  const r = await db.getFirstAsync<{ valor: string | null }>(
-    'SELECT valor FROM config WHERE chave = ?',
-    [chave],
-  );
-  return r?.valor ?? null;
-}
-
-export async function setConfig(db: SQLiteDatabase, chave: string, valor: string | null) {
-  await db.runAsync(
-    'INSERT INTO config (chave, valor) VALUES (?, ?) ON CONFLICT(chave) DO UPDATE SET valor = excluded.valor',
-    [chave, valor],
-  );
+export async function excluirTag(id: number) {
+  const { error } = await supabase.from('tags').delete().eq('id', id);
+  falha(error);
 }

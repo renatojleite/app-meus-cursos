@@ -1,53 +1,33 @@
-import type { SQLiteDatabase } from 'expo-sqlite';
 import { listarTags } from '../db/repo';
 import type { Categoria, EventoDraft } from '../types';
 import { enriquecer, type ResultadoIA } from './claude';
-import { extrairPagina, extrairUrl } from './extract';
-import { getApiKey, getModelo } from './settings';
-
-export class SemChaveError extends Error {
-  constructor() {
-    super('Cadastre sua chave do Claude em Configurações.');
-  }
-}
+import { extrairUrl } from './link';
 
 export interface ImagemEntrada {
   base64: string | null;
   mime: string;
 }
 
-/** Extrai a página e chama o Claude. Usado na tela Novo e no "Enriquecer novamente". */
-export async function rodarEnriquecimento(
-  db: SQLiteDatabase,
-  opts: {
-    link: string;
-    legenda?: string;
-    imagem?: ImagemEntrada | null;
-    categorias: Categoria[];
-    onEtapa?: (texto: string) => void;
-  },
-): Promise<{ resultado: ResultadoIA; link: string; plataforma: string }> {
-  const apiKey = await getApiKey();
-  if (!apiKey) throw new SemChaveError();
-
+/** Chama a Edge Function (lê a página + Claude). Usado em Novo e no "Enriquecer novamente". */
+export async function rodarEnriquecimento(opts: {
+  link: string;
+  legenda?: string;
+  imagem?: ImagemEntrada | null;
+  categorias: Categoria[];
+  onEtapa?: (texto: string) => void;
+}): Promise<{ resultado: ResultadoIA; link: string; plataforma: string }> {
   const link = extrairUrl(opts.link) ?? opts.link.trim();
-  opts.onEtapa?.('Lendo a página…');
-  const extracao = link ? await extrairPagina(link) : null;
-
-  opts.onEtapa?.('Buscando organizador e perfil no Instagram…');
-  const tags = (await listarTags(db)).map((t) => t.nome);
-  const resultado = await enriquecer({
-    apiKey,
-    modelo: await getModelo(db),
+  opts.onEtapa?.('Lendo a página e buscando o perfil no Instagram…');
+  const tags = (await listarTags()).map((t) => t.nome);
+  const { resultado, plataforma } = await enriquecer({
     link,
-    extracao,
     legenda: opts.legenda,
     imagemBase64: opts.imagem?.base64 ?? null,
     imagemMime: opts.imagem?.mime,
     categorias: opts.categorias.map((c) => c.nome),
     tagsExistentes: tags,
   });
-  return { resultado, link, plataforma: extracao?.plataforma ?? '' };
+  return { resultado, link, plataforma };
 }
 
 /**

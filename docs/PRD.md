@@ -2,9 +2,11 @@
 
 App Android pessoal para guardar cursos, lives e workshops a partir de um link, enriquecer os dados com IA e sincronizar as datas com a agenda do celular (Google Agenda).
 
-- **Usuário:** um só (o dono do app). Sem login, sem backend.
-- **Plataforma:** Android (Expo / React Native). Distribuição via APK (EAS Build).
-- **Dados:** 100% locais (SQLite). A única chamada externa é para a API do Claude (chave do próprio usuário) e para a página do link.
+- **Usuário:** um só (o dono do app), com login e-mail + senha.
+- **Plataformas:** Android (APK via GitHub Actions) e web/PC (GitHub Pages), mesmo código Expo.
+- **Dados:** Supabase (Postgres com RLS). A IA roda numa Edge Function com a chave guardada no servidor.
+
+> v2 (16/11/2026): dados migrados do SQLite local para o Supabase; versão web para gerenciar pelo PC. A agenda nativa continua sendo atualizada pelo celular (ao abrir o app), inclusive para mudanças feitas no PC.
 
 ---
 

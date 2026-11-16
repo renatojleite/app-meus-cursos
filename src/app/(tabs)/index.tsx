@@ -1,13 +1,13 @@
 import { router, useFocusEffect } from 'expo-router';
-import { useSQLiteContext } from 'expo-sqlite';
-import React, { useCallback, useState } from 'react';
-import { Alert, FlatList, Modal, Pressable, ScrollView, Text, TextInput, View } from 'react-native';
+import React, { useCallback, useEffect, useState } from 'react';
+import { FlatList, Modal, Pressable, ScrollView, Text, TextInput, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import EventoCard from '../../components/EventoCard';
 import { Botao, Chip, Rotulo, Vazio, s } from '../../components/ui';
 import { atualizarStatus, listarCategorias, listarEventos, listarTags } from '../../db/repo';
 import { syncEvento } from '../../services/calendar';
-import { cores, espaco, raio } from '../../theme';
+import { escolher, avisar } from '../../lib/dialogo';
+import { cores, espaco, larguraMax, raio } from '../../theme';
 import {
   STATUS_INFO,
   STATUS_LIST,
@@ -31,7 +31,6 @@ function toggle<T>(arr: T[], v: T): T[] {
 }
 
 export default function Lista() {
-  const db = useSQLiteContext();
   const insets = useSafeAreaInsets();
   const [filtros, setFiltros] = useState<Filtros>(filtrosPadrao);
   const [eventos, setEventos] = useState<Evento[]>([]);
@@ -39,12 +38,26 @@ export default function Lista() {
   const [tags, setTags] = useState<Tag[]>([]);
   const [modal, setModal] = useState(false);
 
+  const [erro, setErro] = useState<string | null>(null);
+  const [busca, setBusca] = useState('');
+
+  // Busca com pequeno atraso para não consultar a cada tecla
+  useEffect(() => {
+    const t = setTimeout(() => setFiltros((f) => (f.busca === busca ? f : { ...f, busca })), 300);
+    return () => clearTimeout(t);
+  }, [busca]);
+
   const carregar = useCallback(async () => {
-    const [ev, cats, tg] = await Promise.all([listarEventos(db, filtros), listarCategorias(db), listarTags(db)]);
+    try {
+    const [ev, cats, tg] = await Promise.all([listarEventos(filtros), listarCategorias(), listarTags()]);
     setEventos(ev);
     setCategorias(cats);
     setTags(tg);
-  }, [db, filtros]);
+    setErro(null);
+    } catch (e) {
+      setErro(e instanceof Error ? e.message : String(e));
+    }
+  }, [filtros]);
 
   useFocusEffect(
     useCallback(() => {
@@ -56,16 +69,16 @@ export default function Lista() {
     filtros.status.length + filtros.categorias.length + filtros.tags.length + (filtros.preco !== 'todos' ? 1 : 0);
 
   const mudarStatus = (e: Evento) => {
-    Alert.alert(
+    escolher(
       'Mudar status',
       e.titulo,
       [
         ...STATUS_LIST.filter((st) => st !== e.status).map((st) => ({
           text: `${STATUS_INFO[st].emoji} ${STATUS_INFO[st].label}`,
           onPress: async () => {
-            await atualizarStatus(db, e.id, st as Status);
-            const r = await syncEvento(db, e.id);
-            if (!r.ok) Alert.alert('Agenda', r.motivo);
+            await atualizarStatus(e.id, st as Status);
+            const r = await syncEvento(e.id);
+            if (!r.ok) avisar('Agenda', r.motivo);
             carregar();
           },
         })),
@@ -76,14 +89,14 @@ export default function Lista() {
 
   return (
     <View style={{ flex: 1 }}>
-      <View style={{ paddingHorizontal: espaco.lg, paddingBottom: espaco.sm }}>
+      <View style={[{ paddingHorizontal: espaco.lg, paddingBottom: espaco.sm }, larguraMax]}>
         <View style={{ flexDirection: 'row', gap: 8, marginBottom: espaco.sm }}>
           <TextInput
             style={[s.input, { flex: 1 }]}
             placeholder="Buscar título, organizador, @..."
             placeholderTextColor={cores.textoSuave}
-            value={filtros.busca}
-            onChangeText={(busca) => setFiltros({ ...filtros, busca })}
+            value={busca}
+            onChangeText={setBusca}
           />
           <Pressable
             onPress={() => setModal(true)}
@@ -109,7 +122,7 @@ export default function Lista() {
       <FlatList
         data={eventos}
         keyExtractor={(e) => String(e.id)}
-        contentContainerStyle={{ paddingHorizontal: espaco.lg, paddingBottom: 100 }}
+        contentContainerStyle={[{ paddingHorizontal: espaco.lg, paddingBottom: 100 }, larguraMax]}
         renderItem={({ item }) => (
           <EventoCard
             evento={item}
@@ -118,7 +131,9 @@ export default function Lista() {
           />
         )}
         ListEmptyComponent={
-          qtdFiltros || filtros.busca || filtros.periodo !== 'todos' ? (
+          erro ? (
+            <Vazio titulo="Não foi possível carregar" texto={erro} />
+          ) : qtdFiltros || filtros.busca || filtros.periodo !== 'todos' ? (
             <Vazio titulo="Nada encontrado" texto="Ajuste os filtros." />
           ) : (
             <Vazio
@@ -155,6 +170,9 @@ export default function Lista() {
             borderTopLeftRadius: raio.lg,
             borderTopRightRadius: raio.lg,
             maxHeight: '80%',
+            width: '100%',
+            maxWidth: 760,
+            alignSelf: 'center',
             paddingBottom: insets.bottom + espaco.md,
           }}
         >

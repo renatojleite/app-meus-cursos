@@ -1,8 +1,7 @@
-import { DateTimePickerAndroid } from '@react-native-community/datetimepicker';
 import React, { useState } from 'react';
 import { Linking, Pressable, Switch, Text, TextInput, View } from 'react-native';
 import { cores, espaco } from '../theme';
-import { formatarData } from '../format';
+import DataHora from './DataHora';
 import { STATUS_INFO, STATUS_LIST, type Categoria, type EventoDraft, type Formato } from '../types';
 import { Botao, Campo, Card, Chip, Rotulo, s } from './ui';
 
@@ -13,32 +12,6 @@ interface Props {
   tagsExistentes: string[];
   onCriarCategoria: (nome: string) => Promise<number>;
   horaIncerta?: boolean;
-}
-
-function escolherDataHora(atual: string | null, onPick: (iso: string) => void) {
-  const base = atual ? new Date(atual) : (() => {
-    const d = new Date();
-    d.setHours(19, 0, 0, 0);
-    return d;
-  })();
-  DateTimePickerAndroid.open({
-    value: base,
-    mode: 'date',
-    onChange: (ev, data) => {
-      if (ev.type !== 'set' || !data) return;
-      DateTimePickerAndroid.open({
-        value: base,
-        mode: 'time',
-        is24Hour: true,
-        onChange: (ev2, hora) => {
-          const final = new Date(data);
-          if (ev2.type === 'set' && hora) final.setHours(hora.getHours(), hora.getMinutes(), 0, 0);
-          else final.setHours(base.getHours(), base.getMinutes(), 0, 0);
-          onPick(final.toISOString());
-        },
-      });
-    },
-  });
 }
 
 export default function EventoForm({
@@ -82,23 +55,17 @@ export default function EventoForm({
 
       <Rotulo>Data e hora</Rotulo>
       <View style={{ flexDirection: 'row', gap: 8, marginBottom: 4 }}>
-        <Pressable style={[s.input, { flex: 1 }]} onPress={() => escolherDataHora(draft.data_inicio, (iso) => set('data_inicio', iso))}>
-          <Text style={{ color: draft.data_inicio ? cores.texto : cores.textoSuave }}>
-            {draft.data_inicio ? formatarData(draft.data_inicio) : 'Início'}
-          </Text>
-        </Pressable>
-        <Pressable
-          style={[s.input, { flex: 1 }]}
-          onPress={() => escolherDataHora(draft.data_fim ?? draft.data_inicio, (iso) => set('data_fim', iso))}
-        >
-          <Text style={{ color: draft.data_fim ? cores.texto : cores.textoSuave }}>
-            {draft.data_fim ? formatarData(draft.data_fim) : 'Fim (opcional)'}
-          </Text>
-        </Pressable>
+        <DataHora valor={draft.data_inicio} placeholder="Início" onChange={(iso) => set('data_inicio', iso)} />
+        <DataHora
+          valor={draft.data_fim}
+          sugestao={draft.data_inicio}
+          placeholder="Fim (opcional)"
+          onChange={(iso) => set('data_fim', iso)}
+        />
       </View>
       <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginBottom: espaco.md }}>
         <Text style={s.dica}>
-          {horaIncerta && draft.data_inicio ? '⚠️ Horário não encontrado — confira.' : draft.data_inicio ? 'Vai para a agenda com lembrete 1h antes.' : 'Sem data não vai para a agenda.'}
+          {horaIncerta && draft.data_inicio ? '⚠️ Horário não encontrado — confira.' : draft.data_inicio ? 'Vai para a agenda do celular com lembrete 1h antes.' : 'Sem data não vai para a agenda.'}
         </Text>
         {(draft.data_inicio || draft.data_fim) && (
           <Pressable onPress={() => onChange({ ...draft, data_inicio: null, data_fim: null })}>

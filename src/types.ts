@@ -36,7 +36,6 @@ export interface Evento {
   valor: number | null;
   data_inicio: string | null;
   data_fim: string | null;
-  calendar_event_id: string | null;
   criado_em: string;
   atualizado_em: string;
   // joins

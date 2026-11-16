@@ -1,45 +1,68 @@
-import { Stack, router } from 'expo-router';
-import { ShareIntentProvider, useShareIntentContext } from 'expo-share-intent';
-import { SQLiteProvider } from 'expo-sqlite';
+import { Stack, router, useSegments } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
-import React, { useEffect } from 'react';
-import { DB_NAME, migrar } from '../db/schema';
-import { extrairUrl } from '../services/extract';
+import React, { useEffect, useRef } from 'react';
+import { ActivityIndicator, AppState, View } from 'react-native';
+import { CompartilharHandler, CompartilharProvider } from '../components/Compartilhar';
+import { garantirCategorias } from '../db/repo';
+import { DialogoHost, avisar } from '../lib/dialogo';
+import { SessaoProvider, useSessao } from '../lib/sessao';
+import { sincronizarAgenda } from '../services/calendar';
+import { migrarDadosLocais } from '../services/migracao';
 import { cores } from '../theme';
 
-/** Quando o app recebe algo via "Compartilhar", abre a tela Novo já preenchida. */
-function ShareHandler() {
-  const { hasShareIntent, shareIntent, resetShareIntent, isReady } = useShareIntentContext();
+/** Redireciona para /login sem sessão; ao entrar, prepara dados e agenda. */
+function Portao() {
+  const { session, carregando } = useSessao();
+  const segmentos = useSegments();
+  const preparado = useRef<string | null>(null);
 
   useEffect(() => {
-    if (!isReady || !hasShareIntent) return;
-    const texto = shareIntent.text ?? '';
-    const link = shareIntent.webUrl ?? extrairUrl(texto) ?? '';
-    const img = shareIntent.files?.find((f) => f.mimeType?.startsWith('image/'));
-    const legenda = texto && texto.trim() !== link ? texto : '';
+    if (carregando) return;
+    const naLogin = segmentos[0] === 'login';
+    if (!session && !naLogin) router.replace('/login');
+    else if (session && naLogin) router.replace('/');
+  }, [session, carregando, segmentos]);
 
-    router.push({
-      pathname: '/novo',
-      params: {
-        link,
-        legenda,
-        imagem: img?.path ?? '',
-        mime: img?.mimeType ?? '',
-        t: String(Date.now()),
-      },
+  useEffect(() => {
+    const uid = session?.user.id;
+    if (!uid || preparado.current === uid) return;
+    preparado.current = uid;
+    (async () => {
+      try {
+        await garantirCategorias();
+        const n = await migrarDadosLocais();
+        if (n > 0) avisar('Dados migrados', `${n} curso(s) deste celular agora estão na nuvem.`);
+        await sincronizarAgenda();
+      } catch (e) {
+        avisar('Erro ao preparar dados', e instanceof Error ? e.message : String(e));
+      }
+    })();
+  }, [session]);
+
+  // Ao voltar para o app, aplica na agenda o que mudou (ex.: editado no PC).
+  useEffect(() => {
+    if (!session) return;
+    const sub = AppState.addEventListener('change', (st) => {
+      if (st === 'active') sincronizarAgenda().catch(() => {});
     });
-    resetShareIntent();
-  }, [isReady, hasShareIntent, shareIntent, resetShareIntent]);
+    return () => sub.remove();
+  }, [session]);
 
-  return null;
+  if (carregando) {
+    return (
+      <View style={{ position: 'absolute', inset: 0, alignItems: 'center', justifyContent: 'center', backgroundColor: cores.fundo }}>
+        <ActivityIndicator color={cores.primaria} />
+      </View>
+    );
+  }
+  return session ? <CompartilharHandler /> : null;
 }
 
 export default function RootLayout() {
   return (
-    <ShareIntentProvider options={{ resetOnBackground: true }}>
-      <SQLiteProvider databaseName={DB_NAME} onInit={migrar}>
+    <CompartilharProvider>
+      <SessaoProvider>
         <StatusBar style="dark" />
-        <ShareHandler />
         <Stack
           screenOptions={{
             headerStyle: { backgroundColor: cores.fundo },
@@ -49,10 +72,13 @@ export default function RootLayout() {
           }}
         >
           <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
+          <Stack.Screen name="login" options={{ headerShown: false }} />
           <Stack.Screen name="novo" options={{ title: 'Novo', presentation: 'modal' }} />
           <Stack.Screen name="evento/[id]" options={{ title: 'Detalhe' }} />
         </Stack>
-      </SQLiteProvider>
-    </ShareIntentProvider>
+        <Portao />
+        <DialogoHost />
+      </SessaoProvider>
+    </CompartilharProvider>
   );
 }
