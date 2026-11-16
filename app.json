@@ -1,6 +1,6 @@
 {
   "expo": {
-    "name": "meus-cursos",
+    "name": "Meus Cursos",
     "slug": "meus-cursos",
     "version": "1.0.0",
     "orientation": "portrait",
@@ -16,10 +16,46 @@
         "backgroundImage": "./assets/android-icon-background.png",
         "monochromeImage": "./assets/android-icon-monochrome.png"
       },
-      "predictiveBackGestureEnabled": false
+      "predictiveBackGestureEnabled": false,
+      "package": "com.renato.meuscursos",
+      "permissions": [
+        "READ_CALENDAR",
+        "WRITE_CALENDAR"
+      ]
     },
     "web": {
       "favicon": "./assets/favicon.png"
+    },
+    "plugins": [
+      "expo-router",
+      "expo-sqlite",
+      "expo-secure-store",
+      "@react-native-community/datetimepicker",
+      [
+        "expo-calendar",
+        {
+          "calendarPermission": "O app salva seus cursos e lives na sua agenda."
+        }
+      ],
+      [
+        "expo-image-picker",
+        {
+          "photosPermission": "Usado para anexar prints de posts e perfis."
+        }
+      ],
+      [
+        "expo-share-intent",
+        {
+          "androidIntentFilters": [
+            "text/*",
+            "image/*"
+          ]
+        }
+      ]
+    ],
+    "scheme": "meuscursos",
+    "experiments": {
+      "typedRoutes": false
     }
   }
 }

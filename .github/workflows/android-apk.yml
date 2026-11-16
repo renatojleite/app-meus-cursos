@@ -1,0 +1,60 @@
+name: APK Android
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  apk:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    env:
+      GRADLE_OPTS: -Dorg.gradle.jvmargs="-Xmx4g -XX:MaxMetaspaceSize=1g"
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 17
+
+      - uses: gradle/actions/setup-gradle@v4
+
+      - name: Instalar dependências
+        run: npm ci
+
+      - name: Typecheck
+        run: npm run typecheck
+
+      - name: Gerar projeto Android
+        run: npx expo prebuild --platform android --no-install
+
+      - name: Compilar APK (arm64)
+        working-directory: android
+        run: ./gradlew assembleRelease --no-daemon -PreactNativeArchitectures=arm64-v8a
+
+      - name: Renomear
+        run: |
+          cp android/app/build/outputs/apk/release/app-release.apk meus-cursos-${{ github.run_number }}.apk
+          cp android/app/build/outputs/apk/release/app-release.apk meus-cursos.apk
+
+      - name: Publicar Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: build-${{ github.run_number }}
+          name: Meus Cursos ${{ github.run_number }}
+          body: APK de teste. Baixe no Android e permita "instalar apps desta fonte".
+          files: |
+            meus-cursos-${{ github.run_number }}.apk
+            meus-cursos.apk
+          prerelease: false
+          make_latest: true
