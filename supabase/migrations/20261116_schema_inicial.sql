@@ -87,3 +87,14 @@ end $$;
 
 -- salvar_evento(p_id, p jsonb, p_tags text[]): cria/atualiza o evento e substitui as tags
 -- numa transação (ver definição completa no projeto: pg_get_functiondef).
+
+-- migration "auto_confirmar_email": contas novas já nascem confirmadas (sem link por e-mail)
+create function public.auto_confirmar_email() returns trigger
+language plpgsql security definer set search_path = '' as $$
+begin
+  if new.email_confirmed_at is null then new.email_confirmed_at := now(); end if;
+  return new;
+end $$;
+revoke execute on function public.auto_confirmar_email() from anon, authenticated, public;
+create trigger auto_confirmar_email before insert on auth.users
+  for each row execute function public.auto_confirmar_email();

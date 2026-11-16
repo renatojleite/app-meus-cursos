@@ -24,18 +24,18 @@ export default function Login() {
           avisar(
             'Não foi possível entrar',
             /confirm/i.test(error.message)
-              ? 'Confirme seu e-mail pelo link que enviamos e tente de novo.'
+              ? 'Sua conta ainda não está liberada. Tente criar a conta de novo.'
               : 'E-mail ou senha incorretos.',
           );
         }
       } else {
         const { data, error } = await supabase.auth.signUp({ email: email.trim(), password: senha });
-        if (error) avisar('Não foi possível criar a conta', error.message);
-        else if (!data.session) {
-          avisar(
-            'Confirme seu e-mail',
-            'Enviamos um link de confirmação. Toque nele (pode abrir uma página de erro, tudo bem) e depois volte aqui para entrar.',
-          );
+        if (error) {
+          avisar('Não foi possível criar a conta', error.message);
+        } else if (!data.session) {
+          // Conta já nasce confirmada no servidor: entra direto, sem link por e-mail.
+          const r = await supabase.auth.signInWithPassword({ email: email.trim(), password: senha });
+          if (r.error) avisar('Conta criada', 'Agora é só entrar com seu e-mail e senha.');
           setModo('entrar');
         }
       }
