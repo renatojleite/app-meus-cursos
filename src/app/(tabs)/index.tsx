@@ -2,7 +2,9 @@ import { router, useFocusEffect, useLocalSearchParams } from 'expo-router';
 import React, { useCallback, useEffect, useState } from 'react';
 import { FlatList, Modal, Pressable, ScrollView, Text, TextInput, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import EventoCard from '../../components/EventoCard';
+import EventosTabela, { type Ordem } from '../../components/EventosTabela';
 import { Botao, Chip, Rotulo, Vazio, s } from '../../components/ui';
 import { atualizarStatus, listarCategorias, listarEventos, listarTags } from '../../db/repo';
 import { syncEvento } from '../../services/calendar';
@@ -51,6 +53,27 @@ export default function Lista() {
 
   const [erro, setErro] = useState<string | null>(null);
   const [busca, setBusca] = useState('');
+  const [modo, setModo] = useState<'cards' | 'tabela'>('cards');
+  const [ordem, setOrdem] = useState<Ordem>({ coluna: 'data', asc: true });
+
+  // Lembra a visualização e a ordenação neste aparelho
+  useEffect(() => {
+    AsyncStorage.multiGet(['lista_modo', 'lista_ordem'])
+      .then(([[, m], [, o]]) => {
+        if (m === 'tabela' || m === 'cards') setModo(m);
+        if (o) setOrdem(JSON.parse(o));
+      })
+      .catch(() => {});
+  }, []);
+  const mudarModo = (m: 'cards' | 'tabela') => {
+    setModo(m);
+    AsyncStorage.setItem('lista_modo', m).catch(() => {});
+  };
+  const mudarOrdem = (o: Ordem) => {
+    setOrdem(o);
+    AsyncStorage.setItem('lista_ordem', JSON.stringify(o)).catch(() => {});
+  };
+  const largura = modo === 'tabela' ? { ...larguraMax, maxWidth: 1400 } : larguraMax;
 
   // Busca com pequeno atraso para não consultar a cada tecla
   useEffect(() => {
@@ -101,7 +124,7 @@ export default function Lista() {
 
   return (
     <View style={{ flex: 1 }}>
-      <View style={[{ paddingHorizontal: espaco.lg, paddingBottom: espaco.sm }, larguraMax]}>
+      <View style={[{ paddingHorizontal: espaco.lg, paddingBottom: espaco.sm }, largura]}>
         <View style={{ flexDirection: 'row', gap: 8, marginBottom: espaco.sm }}>
           <TextInput
             style={[s.input, { flex: 1 }]}
@@ -119,16 +142,31 @@ export default function Lista() {
             </Text>
           </Pressable>
         </View>
-        <ScrollView horizontal showsHorizontalScrollIndicator={false}>
-          {PERIODOS.map((p) => (
-            <Chip
-              key={p.k}
-              label={p.label}
-              ativo={filtros.periodo === p.k}
-              onPress={() => setFiltros({ ...filtros, periodo: p.k })}
-            />
-          ))}
-        </ScrollView>
+        <View style={{ flexDirection: 'row', alignItems: 'flex-start' }}>
+          <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ flex: 1 }}>
+            {PERIODOS.map((p) => (
+              <Chip
+                key={p.k}
+                label={p.label}
+                ativo={filtros.periodo === p.k}
+                onPress={() => setFiltros({ ...filtros, periodo: p.k })}
+              />
+            ))}
+          </ScrollView>
+          <View style={{ flexDirection: 'row', borderWidth: 1, borderColor: cores.borda, borderRadius: raio.pill, overflow: 'hidden', marginLeft: 6 }}>
+            {(['cards', 'tabela'] as const).map((m) => (
+              <Pressable
+                key={m}
+                onPress={() => mudarModo(m)}
+                style={{ paddingHorizontal: 12, paddingVertical: 7, backgroundColor: modo === m ? cores.primaria : cores.card }}
+              >
+                <Text style={{ fontSize: 13, fontWeight: '600', color: modo === m ? '#fff' : cores.textoSuave }}>
+                  {m === 'cards' ? '▤ Cards' : '▦ Tabela'}
+                </Text>
+              </Pressable>
+            ))}
+          </View>
+        </View>
         {filtros.instagram ? (
           <View style={{ flexDirection: 'row', marginTop: espaco.xs }}>
             <Chip label={`🔗 @${filtros.instagram}  ✕`} ativo onPress={limparPerfil} />
@@ -136,6 +174,20 @@ export default function Lista() {
         ) : null}
       </View>
 
+      {modo === 'tabela' && eventos.length > 0 ? (
+        <ScrollView contentContainerStyle={[{ paddingHorizontal: espaco.lg, paddingBottom: 100 }, largura]}>
+          <EventosTabela
+            eventos={eventos}
+            ordem={ordem}
+            onOrdem={mudarOrdem}
+            onPress={(e) => router.push(`/evento/${e.id}`)}
+            onLongPress={mudarStatus}
+          />
+          <Text style={[s.dica, { marginTop: espaco.sm }]}>
+            {eventos.length} curso(s) · clique no título da coluna para ordenar
+          </Text>
+        </ScrollView>
+      ) : (
       <FlatList
         data={eventos}
         keyExtractor={(e) => String(e.id)}
@@ -160,6 +212,7 @@ export default function Lista() {
           )
         }
       />
+      )}
 
       <Pressable
         onPress={() => router.push('/novo')}
