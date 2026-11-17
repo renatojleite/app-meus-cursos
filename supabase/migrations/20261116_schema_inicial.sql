@@ -98,3 +98,7 @@ end $$;
 revoke execute on function public.auto_confirmar_email() from anon, authenticated, public;
 create trigger auto_confirmar_email before insert on auth.users
   for each row execute function public.auto_confirmar_email();
+
+-- migration "instagram_normalizado": vínculo entre cursos do mesmo perfil
+update public.eventos set instagram = nullif(lower(regexp_replace(trim(instagram), '^@', '')), '') where instagram is not null;
+create index if not exists eventos_user_instagram_idx on public.eventos (user_id, instagram) where instagram is not null;

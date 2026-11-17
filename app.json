@@ -34,7 +34,12 @@
       "backgroundColor": "#F6F5F2"
     },
     "plugins": [
-      "expo-router",
+      [
+        "expo-router",
+        {
+          "asyncRoutes": false
+        }
+      ],
       "expo-sqlite",
       "expo-secure-store",
       "@react-native-community/datetimepicker",
