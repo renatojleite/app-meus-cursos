@@ -54,7 +54,8 @@ Quando algo nativo não existe na web, crie `x.web.ts(x)` com a mesma interface 
 - Datas armazenadas em ISO 8601 (`toISOString()`); exibidas em `pt-BR`, fuso local.
 
 ## Claude API (Edge Function `enriquecer`)
-- Secrets no Supabase: `ANTHROPIC_API_KEY`, `ALLOWED_EMAILS` (e-mails que podem usar a IA), `ANTHROPIC_MODEL` opcional (padrão `claude-sonnet-5-5`).
+- Secrets no Supabase: `ANTHROPIC_API_KEY`; `ANTHROPIC_MODEL` opcional (padrão `claude-sonnet-5-5`).
+- Quem pode usar a IA: tabela `public.ia_permitidos` (user_id), consultada pela função com o token do usuário. Para liberar alguém: `insert into public.ia_permitidos (user_id) values (...)`. `ALLOWED_EMAILS` (secret) ainda é aceito como alternativa.
 - Ferramenta `web_search_20250305` (max_uses 5); trata `pause_turn`; resposta final só JSON.
 - Deploy: ferramenta MCP `deploy_edge_function` (verify_jwt true) com os 3 arquivos da pasta.
 

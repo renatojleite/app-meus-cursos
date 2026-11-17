@@ -102,3 +102,13 @@ create trigger auto_confirmar_email before insert on auth.users
 -- migration "instagram_normalizado": vínculo entre cursos do mesmo perfil
 update public.eventos set instagram = nullif(lower(regexp_replace(trim(instagram), '^@', '')), '') where instagram is not null;
 create index if not exists eventos_user_instagram_idx on public.eventos (user_id, instagram) where instagram is not null;
+
+-- migration "ia_permitidos": quem pode usar a IA (gerenciado via SQL)
+create table public.ia_permitidos (
+  user_id uuid primary key references auth.users(id) on delete cascade,
+  criado_em timestamptz not null default now()
+);
+alter table public.ia_permitidos enable row level security;
+create policy "ver o proprio" on public.ia_permitidos for select to authenticated
+  using (user_id = (select auth.uid()));
+-- insert into public.ia_permitidos (user_id) values ('<uuid do usuário>');

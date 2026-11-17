@@ -1,6 +1,6 @@
 // Edge Function "enriquecer": lê a página do link e pede ao Claude (com web search)
 // para estruturar o evento. A chave da Anthropic fica só aqui (secret ANTHROPIC_API_KEY).
-// Acesso restrito aos e-mails em ALLOWED_EMAILS (separados por vírgula).
+// Acesso: usuários em public.ia_permitidos (ou e-mails no secret opcional ALLOWED_EMAILS).
 import 'jsr:@supabase/functions-js/edge-runtime.d.ts';
 import { extrairPagina, type Extracao } from './extract.ts';
 import { SISTEMA } from './prompt.ts';
@@ -26,17 +26,43 @@ interface Entrada {
 
 type Bloco = { type: string; text?: string; [k: string]: unknown };
 
-function emailDoToken(req: Request): string | null {
-  const auth = req.headers.get('authorization') ?? '';
-  const token = auth.replace(/^Bearer\s+/i, '');
+function payloadDoToken(req: Request): Record<string, unknown> | null {
+  const token = (req.headers.get('authorization') ?? '').replace(/^Bearer\s+/i, '');
   const parte = token.split('.')[1];
   if (!parte) return null;
   try {
     const b64 = parte.replace(/-/g, '+').replace(/_/g, '/');
-    const payload = JSON.parse(atob(b64 + '='.repeat((4 - (b64.length % 4)) % 4)));
-    return typeof payload.email === 'string' ? payload.email.toLowerCase() : null;
+    return JSON.parse(atob(b64 + '='.repeat((4 - (b64.length % 4)) % 4)));
   } catch {
     return null;
+  }
+}
+
+/** Permissão: e-mail no secret opcional ALLOWED_EMAILS ou usuário em public.ia_permitidos (consulta com o token do próprio usuário, via RLS). */
+async function podeUsarIA(req: Request): Promise<boolean> {
+  const payload = payloadDoToken(req);
+  const sub = typeof payload?.sub === 'string' ? payload.sub : null;
+  const email = typeof payload?.email === 'string' ? payload.email.toLowerCase() : null;
+  if (!sub) return false;
+
+  const permitidos = (Deno.env.get('ALLOWED_EMAILS') ?? '')
+    .split(',')
+    .map((s) => s.trim().replace(/^["']|["']$/g, '').toLowerCase())
+    .filter(Boolean);
+  if (email && permitidos.includes(email)) return true;
+
+  const url = Deno.env.get('SUPABASE_URL');
+  const apikey = req.headers.get('apikey') ?? Deno.env.get('SUPABASE_ANON_KEY') ?? '';
+  if (!url || !apikey) return false;
+  try {
+    const r = await fetch(`${url}/rest/v1/ia_permitidos?select=user_id&user_id=eq.${sub}`, {
+      headers: { apikey, authorization: req.headers.get('authorization') ?? '' },
+    });
+    if (!r.ok) return false;
+    const linhas = await r.json();
+    return Array.isArray(linhas) && linhas.length > 0;
+  } catch {
+    return false;
   }
 }
 
@@ -92,12 +118,7 @@ Deno.serve(async (req) => {
   if (req.method === 'OPTIONS') return new Response('ok', { headers: cors });
   if (req.method !== 'POST') return json({ error: 'Método não permitido' }, 405);
 
-  const permitidos = (Deno.env.get('ALLOWED_EMAILS') ?? '')
-    .split(',')
-    .map((s) => s.trim().toLowerCase())
-    .filter(Boolean);
-  const email = emailDoToken(req);
-  if (!email || !permitidos.includes(email)) {
+  if (!(await podeUsarIA(req))) {
     return json({ error: 'Usuário sem permissão para usar a IA.' }, 403);
   }
 
