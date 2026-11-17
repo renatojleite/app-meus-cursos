@@ -14,6 +14,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 60
     env:
+      EXPO_PUBLIC_BUILD: ${{ github.run_number }}
       GRADLE_OPTS: -Dorg.gradle.jvmargs="-Xmx4g -XX:MaxMetaspaceSize=1g"
     steps:
       - uses: actions/checkout@v4

@@ -3,6 +3,7 @@ import React, { useCallback, useEffect, useState } from 'react';
 import { FlatList, Modal, Pressable, ScrollView, Text, TextInput, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { BannerAtualizacao } from '../../components/Atualizacao';
 import EventoCard from '../../components/EventoCard';
 import EventosTabela, { type Ordem } from '../../components/EventosTabela';
 import { Botao, Chip, Rotulo, Vazio, s } from '../../components/ui';
@@ -125,6 +126,7 @@ export default function Lista() {
   return (
     <View style={{ flex: 1 }}>
       <View style={[{ paddingHorizontal: espaco.lg, paddingBottom: espaco.sm }, largura]}>
+        <BannerAtualizacao />
         <View style={{ flexDirection: 'row', gap: 8, marginBottom: espaco.sm }}>
           <TextInput
             style={[s.input, { flex: 1 }]}

@@ -1,6 +1,7 @@
 import { useFocusEffect } from 'expo-router';
 import React, { useCallback, useState } from 'react';
 import { Modal, Pressable, ScrollView, Switch, Text, TextInput, View } from 'react-native';
+import { VersaoApp } from '../../components/Atualizacao';
 import { Botao, Card, Rotulo, s } from '../../components/ui';
 import {
   criarCategoria,
@@ -110,6 +111,11 @@ export default function Config() {
           Seus cursos ficam na nuvem: acesse pelo celular ou pelo navegador do PC com este mesmo login.
         </Text>
         <Botao titulo="Sair" variante="secundario" onPress={sair} />
+      </Card>
+
+      <Card>
+        <Text style={titulo}>Versão do app</Text>
+        <VersaoApp />
       </Card>
 
       {AGENDA_DISPONIVEL ? (
